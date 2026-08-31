@@ -1,0 +1,9 @@
+tqdm==4.70.0
+igraph==1.0.0
+httpx==0.28.1
+packaging==26.3
+openai==3.5.0
+numpy==2.4.6
+torch==2.13.0
+transformers==5.16.1
+pandas==3.0.5
