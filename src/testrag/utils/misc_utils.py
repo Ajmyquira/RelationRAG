@@ -3,7 +3,7 @@ import numpy as np
 
 from argparse import ArgumentTypeError
 from dataclasses import dataclass
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -11,21 +11,21 @@ logger = logging.getLogger(__name__)
 class PropositionRawOutput:
     chunk_id: str
     response: str
-    propositions: List[Dict[str, Any]]  # List of proposition objects with text and entities
+    propositions: list[Dict[str, Any]]  # List of proposition objects with text and entities
     metadata: Dict[str, Any] = None
 
 @dataclass
 class NerRawOutput:
     chunk_id: str
     response: str
-    unique_entities: List[str]
+    unique_entities: list[str]
     metadata: Dict[str, Any]
 
 @dataclass
 class TripleRawOutput:
     chunk_id: str
     response: str
-    triples: List[List[str]]
+    triples: list[list[str]]
     metadata: Dict[str, Any]
 
 def compute_mdhash_id(content: str, prefix: str = "") -> str:
@@ -79,7 +79,7 @@ def reformat_openie_results(corpus_openie_results) -> (Dict[str, NerRawOutput], 
     return ner_output_dict, triple_output_dict
 
 
-def filter_invalid_triples(triples: List[List[str]]) -> List[List[str]]:
+def filter_invalid_triples(triples: list[list[str]]) -> list[list[str]]:
     """
     Filters out invalid and duplicate triples from a list of triples.
 
@@ -93,11 +93,11 @@ def filter_invalid_triples(triples: List[List[str]]) -> List[List[str]]:
     - Do not apply any text preprocessing techniques or rules within this function.
     
     Args:
-        triples (List[List[str]]): 
+        triples (list[list[str]]): 
             A list of triples (each a list of strings or elements that can be converted to strings).
 
     Returns:
-        List[List[str]]: 
+        list[list[str]]: 
             A list of unique, valid triples, each represented as a list of strings.
     """
 
@@ -114,7 +114,7 @@ def filter_invalid_triples(triples: List[List[str]]) -> List[List[str]]:
     
     return valid_triples
 
-def extract_proposition_entities(chunk_propositions: List[List[Dict]]) -> Tuple[List[str], List[List[str]]]:
+def extract_proposition_entities(chunk_propositions: list[list[Dict]]) -> Tuple[list[str], list[list[str]]]:
     """
     Extract all entity nodes from propositions and group them by chunk.
     
@@ -143,7 +143,7 @@ def extract_proposition_entities(chunk_propositions: List[List[Dict]]) -> Tuple[
     
     return list(np.unique(all_entities)), chunk_proposition_entities
 
-def flatten_propositions(chunk_propositions: List[List[Dict]]) -> List[Dict]:
+def flatten_propositions(chunk_propositions: list[list[Dict]]) -> list[Dict]:
     """
     Flatten a list of lists of propositions into a single list.
     
