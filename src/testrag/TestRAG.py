@@ -4,7 +4,7 @@ import logging
 import re
 
 from dataclasses import asdict
-from typing import List, Tuple, Set
+from typing import Tuple, Set
 from collections import defaultdict
 from tqdm import tqdm
 
@@ -138,13 +138,13 @@ class TestRAG:
             logger.info(f"Loaded graph from {self._graphml_xml_file} with {preloaded_graph.vcount()} nodes, {preloaded_graph.ecount()} edges.")
             return preloaded_graph
 
-    def index(self, docs: List[str]):
+    def index(self, docs: list[str]):
         """
         Indexes the given documents into an entity–proposition–passage knowledge graph
         and encodes passages, entities and propositions separately for later retrieval.
 
         Parameters:
-            docs : List[str]
+            docs : list[str]
                 A list of documents to be indexed.
         """
         
@@ -242,7 +242,7 @@ class TestRAG:
             self.save_igraph() # GraphML
 
 
-    def load_existing_openie(self, chunk_keys: List[str]) -> Tuple[List[dict], Set[str]]:
+    def load_existing_openie(self, chunk_keys: list[str]) -> Tuple[list[dict], Set[str]]:
         """
         Loads existing OpenIE results from the specified file if it exists and combines
         them with new content while standardizing indices. If the file does not exist or
@@ -250,11 +250,11 @@ class TestRAG:
         it prepares new entries for processing.
 
         Args:
-            chunk_keys (List[str]): A list of chunk keys that represent identifiers
+            chunk_keys (list[str]): A list of chunk keys that represent identifiers
                                      for the content to be processed.
 
         Returns:
-            Tuple[List[dict], Set[str]]: A tuple where the first element is the existing OpenIE
+            Tuple[list[dict], Set[str]]: A tuple where the first element is the existing OpenIE
                                          information (if any) loaded from the file, and the
                                          second element is a set of chunk keys that still need to
                                          be saved or processed.
@@ -287,7 +287,7 @@ class TestRAG:
 
     def merge_openie_results(
         self,
-        all_openie_info: List[dict],
+        all_openie_info: list[dict],
         chunks_to_save: Dict[str, dict],
         ner_results_dict: Dict[str, NerRawOutput],
         proposition_results_dict_triples: Dict[str, PropositionRawOutput],
@@ -303,7 +303,7 @@ class TestRAG:
         data for further processing or storage.
 
         Parameters:
-            all_openie_info (List[dict]): A list to hold dictionaries of merged OpenIE
+            all_openie_info (list[dict]): A list to hold dictionaries of merged OpenIE
                 results and metadata for all chunks.
             chunks_to_save (Dict[str, dict]): A dict of chunk identifiers (keys) to process
                 and merge OpenIE results to dictionaries with `hash_id` and `content` keys.
@@ -315,7 +315,7 @@ class TestRAG:
                 mapping chunk keys to their corresponding main proposition extraction results.
 
         Returns:
-            List[dict]: The `all_openie_info` list containing dictionaries with merged
+            list[dict]: The `all_openie_info` list containing dictionaries with merged
             OpenIE results, metadata, and the passage content for each chunk.
 
         """
@@ -340,14 +340,14 @@ class TestRAG:
 
         return all_openie_info
 
-    def save_openie_results(self, all_openie_info: List[dict]):
+    def save_openie_results(self, all_openie_info: list[dict]):
         """
         Computes statistics on extracted entities from OpenIE results and saves the aggregated data in a
         JSON file. The function calculates the average character and word lengths of the extracted entities
         and writes them along with the provided OpenIE information to a file.
 
         Parameters:
-            all_openie_info : List[dict]
+            all_openie_info : list[dict]
                 List of dictionaries, where each dictionary represents information from OpenIE, including
                 extracted entities.
         """
@@ -428,14 +428,14 @@ class TestRAG:
 
         logger.info("Finished adding entity-proposition edges")
 
-    def add_passage_edges(self, chunk_ids: List[str], chunk_propositions_list: List[List[Dict]]):
+    def add_passage_edges(self, chunk_ids: list[str], chunk_propositions_list: list[list[Dict]]):
         """
         Connect each new passage (chunk) node to the proposition nodes extracted from it.
 
         Parameters:
-            chunk_ids : List[str]
+            chunk_ids : list[str]
                 Identifiers of passage nodes.
-            chunk_propositions_list : List[List[Dict]]
+            chunk_propositions_list : list[list[Dict]]
                 List of propositions extracted from each chunk.
         Returns:
             int
