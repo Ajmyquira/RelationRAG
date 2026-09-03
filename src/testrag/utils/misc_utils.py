@@ -114,34 +114,28 @@ def filter_invalid_triples(triples: list[list[str]]) -> list[list[str]]:
     
     return valid_triples
 
-def extract_proposition_entities(chunk_propositions: list[list[Dict]]) -> Tuple[list[str], list[list[str]]]:
+def extract_proposition_entities(chunk_propositions: list[list[Dict]]) -> list[str]:
     """
-    Extract all entity nodes from propositions and group them by chunk.
+    Extract all entity nodes from propositions.
     
     Args:
         chunk_propositions: List of propositions from each chunk
         
     Returns:
-        Tuple containing:
-        - List of unique entity nodes across all chunks
-        - List of lists containing entities for each chunk
+        List of unique entity nodes across all propositions
     """
 
     all_entities = []
-    chunk_proposition_entities = []
 
     for propositions in chunk_propositions:
-        chunk_entities = set()
         for prop in propositions:
             if not "entities" in prop:
                 logger.warning("No entities found in proposition: ", prop)
                 logger.warning(f"Proposition: {prop}")
                 continue
             all_entities.extend(prop["entities"])
-            chunk_entities.update(prop["entities"])
-        chunk_proposition_entities.append(list(chunk_entities))
     
-    return list(np.unique(all_entities)), chunk_proposition_entities
+    return list(np.unique(all_entities))
 
 def flatten_propositions(chunk_propositions: list[list[Dict]]) -> list[Dict]:
     """

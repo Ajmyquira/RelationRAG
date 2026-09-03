@@ -140,8 +140,8 @@ class TestRAG:
 
     def index(self, docs: List[str]):
         """
-        Indexes the given documents based on the HippoRAG 2 framework which generates an OpenIE knowledge graph
-        based on the given documents and encodes passages, entities and propositions separately for later retrieval.
+        Indexes the given documents into an entity–proposition–passage knowledge graph
+        and encodes passages, entities and propositions separately for later retrieval.
 
         Parameters:
             docs : List[str]
@@ -201,8 +201,7 @@ class TestRAG:
                         self.proposition_to_passages[prop_key].add(chunk_id)
 
         chunk_propositions_list = [proposition_results_dict[chunk_id].propositions for chunk_id in chunk_ids]
-        self.chunk_propositions = {chunk_id: chunk_propositions_list[i] for i, chunk_id in enumerate(chunk_ids)}
-        entity_nodes, chunk_proposition_entities = extract_proposition_entities(chunk_propositions_list)
+        entity_nodes = extract_proposition_entities(chunk_propositions_list)
         propositions_flat = flatten_propositions(chunk_propositions_list)
 
         logger.info(f"Encoding Entities")
@@ -231,12 +230,10 @@ class TestRAG:
         logger.info(f"Constructing Graph")
 
         self.node_to_node_stats = {} # (source_id, target_id) -> weight
-        self.ent_node_to_num_chunk = {} # entity_id -> how many chunks mention it
-        self.openie_info = all_openie_info
 
-        logger.info(f"Using proposition-based graph construction")
-        self.add_proposition_edges_with_entity_connections()
-        num_new_chunks = self.add_passage_edges(chunk_ids, chunk_proposition_entities)
+        logger.info(f"Using entity-proposition-passage graph construction")
+        self.add_entity_proposition_edges()
+        num_new_chunks = self.add_passage_edges(chunk_ids, chunk_propositions_list)
 
         if num_new_chunks > 0:
             logger.info(f"Found {num_new_chunks} new chunks to save into graph.")
@@ -396,78 +393,50 @@ class TestRAG:
             logger.info(f"OpenIE results (without averages) saved to {self.openie_results_path}")
 
 
-    def add_proposition_edges_with_entity_connections(self):
+    def record_edge(self, source_id: str, target_id: str, weight: float = 1.0):
+        """ Record an edge in node_to_node_stats. Bidirectional if the graph is directed. """
+
+        if source_id == target_id: return
+
+        self.node_to_node_stats[(source_id, target_id)] = \
+            self.node_to_node_stats.get((source_id, target_id), 0.0) + weight
+
+        if self.global_config.is_directed_graph:
+            self.node_to_node_stats[(target_id, source_id)] = \
+                self.node_to_node_stats.get((target_id, source_id), 0.0) + weight
+
+    def add_entity_proposition_edges(self):
         """
-        Add proposition edges to the graph where all entities within the same proposition
-        are fully connected to each other.
-        
-        This creates:
-        1. Connections between propositions and their entities
-        2. Direct connections between all entities within the same proposition (fully connected)
-        
+        Connect each entity to the proposition nodes that mention it.
+
         Note: This method only collects relationships in node_to_node_stats.
         Actual vertices and edges are added later by augment_graph().
         """
 
-        if "name" in self.graph.vs:
-            current_graph_nodes = set(self.graph.vs['name'])
+        if "name" in self.graph.vs.attribute_names():
+            current_graph_nodes = set(self.graph.vs["name"])
         else:
             current_graph_nodes = set()
-        
-        logger.info(f"Adding proposition entities to graph with entity-entity connections")
 
-        entity_to_chunks = defaultdict(set)
+        logger.info("Connecting entity nodes to proposition nodes")
 
-        for chunk_item in self.openie_info:
-            chunk_id = chunk_item['idx']
-            if 'propositions' in chunk_item:
-                for prop in chunk_item['propositions']:
-                    if "entities" in prop:
-                        for entity_text in prop["entities"]:
-                            entity_key = compute_mdhash_id(entity_text, prefix="entity-")
-                            entity_to_chunks[entity_key].add(chunk_id)
-
-        for prop_key, entities in tqdm(self.proposition_to_entities_map.items(), desc="Adding proposition edges"):
+        for prop_key, entities in tqdm(self.proposition_to_entities_map.items(), desc="Adding entity-proposition edges"):
             if prop_key not in current_graph_nodes:
-                entity_keys = []
-
                 for entity_text in entities:
                     entity_key = compute_mdhash_id(entity_text, prefix="entity-")
-                    entity_keys.append(entity_key)
+                    self.record_edge(entity_key, prop_key)
 
-                for i in range(len(entity_keys)):
-                    for j in range(i+1, len(entity_keys)):
-                        entity1 = entity_keys[i]
-                        entity2 = entity_keys[j]
+        logger.info("Finished adding entity-proposition edges")
 
-                        self.node_to_node_stats[(entity1, entity2)] = \
-                            self.node_to_node_stats.get((entity1, entity2), 0.0) + 1
-                        self.node_to_node_stats[(entity2, entity1)] = \
-                            self.node_to_node_stats.get((entity2, entity1), 0.0) + 1
-                        
-        for entity_key, chunk_set in entity_to_chunks.items():
-            self.ent_node_to_num_chunk[entity_key] = self.ent_node_to_num_chunk.get(entity_key, 0) + len(chunk_set)
-
-        logger.info(f"Finished adding proposition edges with fully connected entity nodes")
-
-    def add_passage_edges(self, chunk_ids: List[str], chunk_proposition_entities: List[List[str]]):
+    def add_passage_edges(self, chunk_ids: List[str], chunk_propositions_list: List[List[Dict]]):
         """
-        Adds edges connecting passage nodes to phrase nodes in the graph.
-
-        This method is responsible for iterating through a list of chunk identifiers
-        and their corresponding proposition entities. It calculates and adds new edges
-        between the passage nodes (defined by the chunk identifiers) and the phrase
-        nodes (defined by the computed unique hash IDs of proposition entities). The method
-        also updates the node-to-node statistics map and keeps count of newly added
-        passage nodes.
+        Connect each new passage (chunk) node to the proposition nodes extracted from it.
 
         Parameters:
             chunk_ids : List[str]
-                A list of identifiers representing passage nodes in the graph.
-            chunk_proposition_entities : List[List[str]]
-                A list of lists where each sublist contains entities (strings) associated
-                with the corresponding chunk in the chunk_ids list.
-
+                Identifiers of passage nodes.
+            chunk_propositions_list : List[List[Dict]]
+                List of propositions extracted from each chunk.
         Returns:
             int
                 The number of new passage nodes added to the graph.
@@ -480,13 +449,14 @@ class TestRAG:
 
         num_new_chunks = 0
 
-        logger.info(f"Connecting passage nodes to phrase nodes.")
+        logger.info("Connecting proposition nodes to passage nodes")
 
-        for idx, chunk_key in tqdm(enumerate(chunk_ids)):
+        for idx, chunk_key in tqdm(enumerate(chunk_ids), desc="Adding proposition-passage edges"):
             if chunk_key not in current_graph_nodes:
-                for chunk_ent in chunk_proposition_entities[idx]:
-                    node_key = compute_mdhash_id(chunk_ent, prefix="entity-")
-                    self.node_to_node_stats[(chunk_key, node_key)] = 1.0
+                for prop in chunk_propositions_list[idx]:
+                    if "text" not in prop: continue
+                    prop_key = compute_mdhash_id(prop["text"], prefix="proposition-")
+                    self.record_edge(prop_key, chunk_key)
 
                 num_new_chunks += 1
 
@@ -575,14 +545,15 @@ class TestRAG:
         self.add_new_edges()
 
         logger.info(f"Graph construction completed!")
-        print(self.get_graph_info())
+        # print(self.get_graph_info())
 
     def add_new_nodes(self):
         """
-        Adds new nodes to the graph from entity and passage embedding stores based on their attributes.
+        Adds new nodes to the graph from entity, proposition and passage embedding stores
+        based on their attributes.
 
         This method identifies and adds new nodes to the graph by comparing existing nodes
-        in the graph and nodes retrieved from the entity embedding store and the passage
+        in the graph and nodes retrieved from the entity, proposition and passage embedding stores.
         embedding store. The method checks attributes and ensures no duplicates are added.
         New nodes are prepared and added in bulk to optimize graph updates.
         """
@@ -590,9 +561,11 @@ class TestRAG:
         existing_nodes = {v["name"]: v for v in self.graph.vs if "name" in v.attributes()}
 
         entity_nodes = self.entity_embedding_store.get_text_for_all_rows()
+        proposition_nodes = self.proposition_embedding_store.get_text_for_all_rows()
         passage_nodes = self.chunk_embedding_store.get_text_for_all_rows()
 
         nodes = entity_nodes
+        nodes.update(proposition_nodes)
         nodes.update(passage_nodes)
 
         new_nodes = {}
@@ -641,55 +614,55 @@ class TestRAG:
         self.graph.add_edges(valid_edges, attributes=valid_weights)
 
 
-    def get_graph_info(self) -> Dict:
-        """
-        Obtains detailed information about the graph such as the number of nodes,
-        propositions, and their classifications.
+    # def get_graph_info(self) -> Dict:
+    #     """
+    #     Obtains detailed information about the graph such as the number of nodes,
+    #     propositions, and their classifications.
 
-        This method calculates various statistics about the graph based on the
-        stores and node-to-node relationships, including counts of phrase and
-        passage nodes, total nodes, extracted propositions, propositions involving passage
-        nodes, synonymy propositions, and total propositions.
+    #     This method calculates various statistics about the graph based on the
+    #     stores and node-to-node relationships, including counts of phrase and
+    #     passage nodes, total nodes, extracted propositions, propositions involving passage
+    #     nodes, synonymy propositions, and total propositions.
 
-        Returns:
-            Dict
-                A dictionary containing the following keys and their respective values:
-                - num_phrase_nodes: The number of unique phrase nodes.
-                - num_passage_nodes: The number of unique passage nodes.
-                - num_total_nodes: The total number of nodes (sum of phrase and passage nodes).
-                - num_extracted_propositions: The number of unique extracted propositions.
-                - num_propositions_with_passage_node: The number of propositions involving at least one
-                  passage node.
-                - num_synonymy_propositions: The number of synonymy propositions (distinct from extracted
-                  propositions and those with passage nodes).
-                - num_total_propositions: The total number of propositions (edges).
-        """
-        graph_info = {}
+    #     Returns:
+    #         Dict
+    #             A dictionary containing the following keys and their respective values:
+    #             - num_phrase_nodes: The number of unique phrase nodes.
+    #             - num_passage_nodes: The number of unique passage nodes.
+    #             - num_total_nodes: The total number of nodes (sum of phrase and passage nodes).
+    #             - num_extracted_propositions: The number of unique extracted propositions.
+    #             - num_propositions_with_passage_node: The number of propositions involving at least one
+    #               passage node.
+    #             - num_synonymy_propositions: The number of synonymy propositions (distinct from extracted
+    #               propositions and those with passage nodes).
+    #             - num_total_propositions: The total number of propositions (edges).
+    #     """
+    #     graph_info = {}
 
-        phrase_nodes_keys = self.entity_embedding_store.get_all_ids()
-        graph_info["num_phrase_nodes"] = len(set(phrase_nodes_keys))
+    #     phrase_nodes_keys = self.entity_embedding_store.get_all_ids()
+    #     graph_info["num_phrase_nodes"] = len(set(phrase_nodes_keys))
 
-        passage_nodes_keys = self.chunk_embedding_store.get_all_ids()
-        graph_info["num_passage_nodes"] = len(set(passage_nodes_keys))
+    #     passage_nodes_keys = self.chunk_embedding_store.get_all_ids()
+    #     graph_info["num_passage_nodes"] = len(set(passage_nodes_keys))
 
-        graph_info["num_total_nodes"] = graph_info["num_phrase_nodes"] + graph_info["num_passage_nodes"]
+    #     graph_info["num_total_nodes"] = graph_info["num_phrase_nodes"] + graph_info["num_passage_nodes"]
 
-        graph_info["num_extracted_propositions"] = len(self.proposition_embedding_store.get_all_ids())
+    #     graph_info["num_extracted_propositions"] = len(self.proposition_embedding_store.get_all_ids())
 
-        num_propositions_with_passage_node = 0
-        passage_nodes_set = set(passage_nodes_keys)
-        num_propositions_with_passage_node = sum(
-            1 for node_pair in self.node_to_node_stats
-            if node_pair[0] in passage_nodes_set or node_pair[1] in passage_nodes_set
-        )
-        graph_info['num_propositions_with_passage_node'] = num_propositions_with_passage_node
+    #     num_propositions_with_passage_node = 0
+    #     passage_nodes_set = set(passage_nodes_keys)
+    #     num_propositions_with_passage_node = sum(
+    #         1 for node_pair in self.node_to_node_stats
+    #         if node_pair[0] in passage_nodes_set or node_pair[1] in passage_nodes_set
+    #     )
+    #     graph_info['num_propositions_with_passage_node'] = num_propositions_with_passage_node
 
-        graph_info['num_synonymy_propositions'] = len(self.node_to_node_stats) - graph_info[
-            "num_extracted_propositions"] - num_propositions_with_passage_node
+    #     graph_info['num_synonymy_propositions'] = len(self.node_to_node_stats) - graph_info[
+    #         "num_extracted_propositions"] - num_propositions_with_passage_node
 
-        graph_info["num_total_propositions"] = len(self.node_to_node_stats)
+    #     graph_info["num_total_propositions"] = len(self.node_to_node_stats)
 
-        return graph_info
+    #     return graph_info
 
     def save_igraph(self):
         logger.info(f"Writting graph with {len(self.graph.vs())} nodes, {len(self.graph.es())} edges")
