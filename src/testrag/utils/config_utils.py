@@ -55,24 +55,8 @@ class BaseConfig:
     )
 
     # Graph construction specific attributes
-    synonymy_edge_topk: int = field(
-        default=2047,
-        metadata={"help": "k for knn retrieval in buiding synonymy edges."}
-    )
-    synonymy_edge_query_batch_size: int = field(
-        default=1000,
-        metadata={"help": "Batch size for query embeddings for knn retrieval in buiding synonymy edges."}
-    )
-    synonymy_edge_key_batch_size: int = field(
-        default=10000,
-        metadata={"help": "Batch size for key embeddings for knn retrieval in buiding synonymy edges."}
-    )
-    synonymy_edge_sim_threshold: float = field(
-        default=0.8,
-        metadata={"help": "Similarity threshold to include candidate synonymy nodes."}
-    )
     is_directed_graph: bool = field(
-        default=False,
+        default=True,
         metadata={"help": "Whether the graph is directed or not."}
     )
 

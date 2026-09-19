@@ -2,8 +2,8 @@ import logging
 import numpy as np
 
 from argparse import ArgumentTypeError
-from dataclasses import dataclass
-from typing import Dict, Any, Tuple
+from dataclasses import dataclass, field
+from typing import Dict, Any, Tuple, List
 
 logger = logging.getLogger(__name__)
 
@@ -13,6 +13,7 @@ class PropositionRawOutput:
     response: str
     propositions: list[Dict[str, Any]]  # List of proposition objects with text and entities
     metadata: Dict[str, Any] = None
+    relations: List[Dict[str, Any]] = field(default_factory=list)
 
 @dataclass
 class NerRawOutput:

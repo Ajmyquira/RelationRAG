@@ -25,7 +25,7 @@ def main():
     with open(corpus_path, "r") as f:
         corpus = json.load(f)
 
-    docs = [f"{doc['title']}\n{doc['text']}" for doc in corpus]
+    docs = [{"title": doc["title"], "text": doc["text"]} for doc in corpus]
 
     force_index_from_scratch = string_to_bool(args.force_index_from_scratch)
     force_openie_from_scratch = string_to_bool(args.force_openie_from_scratch)

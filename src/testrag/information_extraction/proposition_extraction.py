@@ -7,6 +7,7 @@ from typing import Dict, Optional, List
 
 from ..prompts.prompt_template_manager import PromptTemplateManager
 from ..utils.misc_utils import PropositionRawOutput
+from ..utils.relation_utils import sanitize_proposition_relations
 
 logger = logging.getLogger(__name__)
 
@@ -250,7 +251,7 @@ class PropositionExtractor:
             PropositionRawOutput object containing the propositions and metadata
         """
 
-        # Create the prompt for proposition extraction\
+        # Create the prompt for proposition extraction
         if named_entities:
             # Use the new prompt template with named entities
             proposition_input_message = self.prompt_template_manager.render(
@@ -266,7 +267,9 @@ class PropositionExtractor:
             )
     
         raw_response = ""
-        metadata ={}
+        metadata = {}
+        propositions = []
+        relations = []
 
         try:
             # LLM INFERENCE
@@ -286,6 +289,7 @@ class PropositionExtractor:
             # Extract proposition from the response
             extracted_data = self._extract_proposition_from_response(real_response)
             propositions = extracted_data["propositions"]
+            relations = extracted_data["relations"]
         except ValueError as e:
             logger.warning(e)
             logger.warning(f"JSON parsing error! Try to fix JSON: {raw_response}")
@@ -302,6 +306,7 @@ class PropositionExtractor:
                 try:
                     extracted_data = self._extract_proposition_from_response(raw_response)
                     propositions = extracted_data["propositions"]
+                    relations = extracted_data["relations"]
                     fix_json = False
                     logger.info(f"JSON fix successful! {raw_response}")
                 except Exception as e:
@@ -324,6 +329,7 @@ class PropositionExtractor:
                 chunk_id=chunk_key,
                 response=raw_response,
                 propositions=[],
+                relations=[],
                 metadata=metadata
             )
 
@@ -331,6 +337,7 @@ class PropositionExtractor:
             chunk_id=chunk_key,
             response=raw_response,
             propositions=propositions,
+            relations=relations,
             metadata=metadata
         )
 
@@ -342,19 +349,13 @@ class PropositionExtractor:
             response: The raw response from the LLM
             
         Returns:
-            Dictionary containing the extracted propositions
+            Dictionary containing the extracted propositions and relations
         """
 
-        # Fallback to regex-based extraction
-        pattern = r'\{[^{}]*"propositions"\s*:'
-        proposition_pattern = r'\{\s*"text":\s*"(?:\\.|[^\\"])*"\s*,\s*"entities":\s*\[(?:\s*"(?:\\.|[^\\"])*"\s*(?:,\s*"(?:\\.|[^\\"])*"\s*)*)?\s*\]\s*\}'
-
-        match = re.search(pattern, response, re.DOTALL)
-
-        if not match:
+        # Extract the outermost JSON object, regardless of key order.
+        start_idx = response.find("{")
+        if start_idx < 0:
             raise ValueError(f"JSON response is invalid: {response}")
-        
-        start_idx = match.span()[0]
         curly_braces_count = 0
 
         in_quote = False
@@ -393,8 +394,11 @@ class PropositionExtractor:
             json_str = fix_large_json_text(json_str)
             loaded_json = json.loads(json_str)
             logger.info(f"JSON fix successful!")
-        # Fix the JSON as it is not complete
-        for prop in loaded_json["propositions"]:
+        propositions = loaded_json["propositions"]
+        for prop in propositions:
             assert "text" in prop and "entities" in prop
-            # Regenerate using higher temperature
-        return loaded_json
+        relations = sanitize_proposition_relations(
+            loaded_json.get("relations", []),
+            num_propositions=len(propositions),
+        )
+        return {"propositions": propositions, "relations": relations}
