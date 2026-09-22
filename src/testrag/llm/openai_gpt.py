@@ -1,4 +1,3 @@
-import os
 import httpx
 import logging
 from copy import deepcopy
@@ -17,26 +16,16 @@ logger = logging.getLogger(__name__)
 class CacheOpenAI(BaseLLM):
     @classmethod
     def from_experiment_config(cls, global_config: BaseConfig) -> "CacheOpenAI":
-        config_dict = global_config.__dict__
-        cache_dir = os.path.join(global_config.save_dir, "llm_cache")
-        return cls(cache_dir=cache_dir, **config_dict)
+        return cls(**global_config.__dict__)
     
     def __init__(
         self,
-        cache_dir,
-        cache_filename: str = None,
         llm_name: str = "gpt-4o-mini",
         api_key: str = None,
         llm_base_url: str = None,
-        high_throughput: bool = True,
         **kwargs
     ):
         super().__init__()
-        self.cache_dir = cache_dir
-        os.makedirs(self.cache_dir, exist_ok=True)
-        if cache_filename is None:
-            cache_filename = f"{llm_name.replace('/', '_')}_cache.sqlite"
-        self.cache_filename = os.path.join(self.cache_dir, cache_filename)
         self.llm_name = llm_name
         self.llm_base_url = llm_base_url
 
@@ -69,8 +58,6 @@ class CacheOpenAI(BaseLLM):
         messages: List[TextChatMessage],
         **kwargs
     ) -> Tuple[str, dict, bool]:
-        kwargs.pop("use_cache", None)
-        
         params = deepcopy(self.llm_config.generate_params)
         if kwargs:
             params.update(kwargs)

@@ -70,35 +70,25 @@ def fix_and_format_json_segment(original_segment: str, text_content: str, entiti
     entity_lens = [len(entity) for entity in entity_texts]
 
     for uq_index in unescaped_quote_indices:
-        is_entity_boundary = False
         for entity_len in entity_lens:
-            # print(f"Checking quote at index {uq_index}, entity_end_index {uq_index+1+entity_len}: {text_content[uq_index+1:min(uq_index+1+entity_len, len(text_content))]}, entity_start_index {uq_index-entity_len-1}: {text_content[max(0, uq_index-entity_len-1):uq_index]}")
             # Check if the unescaped quote is EXACTLY at the start or end boundary
             if uq_index+1+entity_len <= len(text_content) and text_content[uq_index+1:uq_index+1+entity_len] in entity_texts:
                 entity_end_index = uq_index+1+entity_len
-                entity = text_content[uq_index+1:uq_index+1+entity_len]
-                # logging.info(f"  Unescaped quote at index {uq_index} matches START of entity '{entity}' (ends at {entity_end_index})")
                 # Check the char at the OTHER end (the entity's end)
                 if 0 <= entity_end_index < len(text_content):
                     other_end_char = text_content[entity_end_index]
                     if other_end_char == "'":
-                        # logging.info(f"    Entity '{entity}': Other end is single quote. Replacing quote at {uq_index} with '")
                         replacements_made[uq_index] = "'"
-                        is_entity_boundary = True
                     elif other_end_char == '"': # Escaped or unescaped double quote
                         break
 
             elif uq_index - entity_len - 1 >= 0 and text_content[uq_index - entity_len:uq_index] in entity_texts:
                 entity_start_index = uq_index - entity_len - 1
-                entity = text_content[uq_index - entity_len:uq_index]
-                # logging.info(f"  Unescaped quote at index {uq_index} matches END of entity '{entity}' (starts at {entity_start_index})")
                 # Check the char at the OTHER end (the entity's start)
                 if 0 <= entity_start_index < len(text_content):
                     other_end_char = text_content[entity_start_index]
                     if other_end_char == "'":
-                        # logging.info(f"    Entity '{entity}': Other end is single quote. Replacing quote at {uq_index} with '")
                         replacements_made[uq_index] = "'"
-                        is_entity_boundary = True
                     elif other_end_char == '"': # Escaped or unescaped double quote
                         break
 
@@ -151,12 +141,9 @@ def fix_large_json_text(large_text: str) -> str:
         processed_parts.append(large_text[last_end:match_start])
 
         # --- Check if the original segment is valid JSON ---
-        is_valid_json = False
         try:
             # Attempt to load the original segment directly
             json.loads(original_segment)
-            is_valid_json = True
-            # logger.debug(f"Segment at {match_start} is already valid JSON.")
             processed_parts.append(original_segment) # Append original if valid
         except json.JSONDecodeError as e:
             logger.warning(f"Segment at {match_start} is NOT valid JSON: {e}. Attempting fix...")
@@ -238,7 +225,7 @@ class PropositionExtractor:
 
         return proposition_results_dict
 
-    def extract_propositions(self, chunk_key: str, passage: str, named_entities: Optional[List[str]]=None, temperature=0.0, use_cache=True) -> PropositionRawOutput:
+    def extract_propositions(self, chunk_key: str, passage: str, named_entities: Optional[List[str]]=None, temperature=0.0) -> PropositionRawOutput:
         """
         Extract propositions from a passage.
         
@@ -276,7 +263,6 @@ class PropositionExtractor:
             raw_response, metadata, cache_hit = self.llm_model.infer(
                 messages=proposition_input_message,
                 temperature=temperature,
-                use_cache=use_cache
             )
             metadata['cache_hit'] = cache_hit
 
@@ -294,14 +280,12 @@ class PropositionExtractor:
             logger.warning(e)
             logger.warning(f"JSON parsing error! Try to fix JSON: {raw_response}")
             fix_json = True
-            use_cache = False
 
             while fix_json:
                 json_fix_message = self.prompt_template_manager.render(name='fix_json', json=raw_response)
                 raw_response, _, _ = self.llm_model.infer(
                     messages=json_fix_message,
                     temperature=temperature,
-                    use_cache=use_cache
                 )
                 try:
                     extracted_data = self._extract_proposition_from_response(raw_response)
@@ -312,15 +296,14 @@ class PropositionExtractor:
                 except Exception as e:
                     logger.warning(f"JSON fix error for chunk {chunk_key}: {e}")
                     logger.warning(f"Raw response: {raw_response}")
-                    logger.warning(f"Try again with use_cache = False!")
-                    use_cache = False
+                    logger.warning(f"Try again!")
         
         except AttributeError as e:
             logger.warning(e)
-            return self.extract_propositions(chunk_key, passage, named_entities, temperature=temperature, use_cache=False)
+            return self.extract_propositions(chunk_key, passage, named_entities, temperature=temperature)
         except AssertionError as e:
             logger.warning(f"Entities and text fields do not match, try to regenerate it: {raw_response}")
-            return self.extract_propositions(chunk_key, passage, named_entities, temperature=temperature, use_cache=False)
+            return self.extract_propositions(chunk_key, passage, named_entities, temperature=temperature)
         except Exception as e:
             logger.warning(f"Unknown error for chunk {chunk_key}: {e}")
             logger.warning(f"Raw response: {raw_response}")

@@ -78,7 +78,7 @@ class EnhancedOpenIE:
             return ner_results_dict, None, proposition_results_dict
 
 
-    def ner(self, chunk_key: str, passage: str, temperature=0.0, fix_attempt=False, use_cache=True) -> NerRawOutput:
+    def ner(self, chunk_key: str, passage: str, temperature=0.0, fix_attempt=False) -> NerRawOutput:
         """
         Extract named entities from a passage.
         
@@ -99,11 +99,9 @@ class EnhancedOpenIE:
                 raw_response, metadata, cache_hit = self.llm_model.infer(
                     messages=ner_input_message,
                     temperature=temperature,
-                    use_cache=use_cache
                 )
                 if len(raw_response) == 0:
                     logger.warning("Empty response, try again.")
-                    use_cache = False
             
             metadata['cache_hit'] = cache_hit
 

@@ -13,6 +13,10 @@ class BaseConfig:
         default="gpt-4o-mini",
         metadata={"help": "Class name indicating which LLM model to use."}
     )
+    llm_base_url: Optional[str] = field(
+        default=None,
+        metadata={"help": "Base URL for an OpenAI-compatible LLM API. If None, the OpenAI client default is used."}
+    )
 
     # Storage specific attributes
     force_openie_from_scratch: bool = field(

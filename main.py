@@ -12,7 +12,7 @@ def main():
     parser = argparse.ArgumentParser(description="Test RAG")
     parser.add_argument("--dataset", type=str, default="2wikimultihopqa", help="Dataset name")
     parser.add_argument("--llm_name", type=str, default="gpt-4o-mini", help="LLM name")
-    parser.add_argument("--llm_base_url", type=str, default="https://api.openia.com/v1", help='LLM base URL')
+    parser.add_argument("--llm_base_url", type=str, default="https://api.openai.com/v1", help='LLM base URL')
     parser.add_argument("--embedding_name", type=str, default="facebook/contriever", help="Embedding model name")
     parser.add_argument("--force_index_from_scratch", type=str, default="false", help="If set to True, will ignore all existing storage files and graph data and will rebuild from scrath.")
     parser.add_argument("--force_openie_from_scratch", type=str, default="false", help="If set to False, will try to first reuse openie result for the corpus if they exist.")
@@ -36,6 +36,7 @@ def main():
         embedding_model_name=args.embedding_name,
         force_index_from_scratch=force_index_from_scratch,
         force_openie_from_scratch=force_openie_from_scratch,
+        llm_base_url=args.llm_base_url,
     )
 
     logging.basicConfig(level=logging.INFO)

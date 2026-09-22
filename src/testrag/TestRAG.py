@@ -189,11 +189,9 @@ class TestRAG:
         proposition_results_dict = {}
 
         self.proposition_to_passages = defaultdict(set)
-        self.proposition_to_doc_ids = defaultdict(set)
 
         for chunk_item in all_openie_info:
             chunk_id = chunk_item['idx']
-            doc_id = chunk_item['doc_id']
             proposition_results_dict[chunk_id] = PropositionRawOutput(
                 chunk_id=chunk_id,
                 response="",
@@ -205,7 +203,6 @@ class TestRAG:
                 prop_text = prop["text"]
                 prop_key = compute_mdhash_id(prop_text, prefix="proposition-")
                 self.proposition_to_passages[prop_key].add(chunk_id)
-                self.proposition_to_doc_ids[prop_key].add(doc_id)
 
         chunk_propositions_list = [proposition_results_dict[chunk_id].propositions for chunk_id in chunk_ids]
         chunk_relations_list = [proposition_results_dict[chunk_id].relations for chunk_id in chunk_ids]
