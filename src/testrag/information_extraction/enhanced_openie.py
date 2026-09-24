@@ -1,12 +1,12 @@
 import logging
 import re
 from tqdm import tqdm
-from typing import Dict, Tuple, Optional, List, TypedDict
+from typing import Dict, Tuple, List, TypedDict
 
 from ..llm import CacheOpenAI
 from ..prompts.prompt_template_manager import PromptTemplateManager
 from .proposition_extraction import PropositionExtractor
-from ..utils.misc_utils import PropositionRawOutput, NerRawOutput, TripleRawOutput
+from ..utils.misc_utils import PropositionRawOutput, NerRawOutput
 
 logger = logging.getLogger(__name__)
 
@@ -26,8 +26,8 @@ def _extract_ner_from_response(real_response):
 
 class EnhancedOpenIE:
     """
-    Enhanced version of OpenIE that uses proposition extraction before entity-relation extraction.
-    This creates more contextually aware triples by first breaking passages into atomic propositions.
+    OpenIE pipeline that extracts named entities first and then uses them to guide
+    the extraction of atomic propositions (and proposition-proposition relations).
     """
 
     def __init__(self, llm_model: CacheOpenAI):
@@ -42,16 +42,15 @@ class EnhancedOpenIE:
         self.llm_model = llm_model
         self.proposition_extractor = PropositionExtractor(llm_model)
 
-    def batch_openie(self, chunks: Dict[str, ChunkInfo], skip_triples=True) -> Tuple[Dict[str, NerRawOutput], Optional[Dict[str, TripleRawOutput]], Dict[str, PropositionRawOutput]]:
+    def batch_openie(self, chunks: Dict[str, ChunkInfo]) -> Tuple[Dict[str, NerRawOutput], Dict[str, PropositionRawOutput]]:
         """
         Conduct batch OpenIE with proposition extraction.
         
         Args:
             chunks: Dictionary of chunk IDs to chunk info
-            skip_triples: If True, skip triple extraction and use only propositions
             
         Returns:
-            Tuple of dictionaries with NER, (optionally) triple, and proposition extraction results
+            Tuple of dictionaries with NER and proposition extraction results
         """
 
         # Extract passages from the provided chunks
@@ -74,9 +73,7 @@ class EnhancedOpenIE:
         # Extract propositions with the named entities
         proposition_results_dict = self.proposition_extractor.batch_extract_propositions(chunks, named_entities_dict)
 
-        if skip_triples:
-            return ner_results_dict, None, proposition_results_dict
-
+        return ner_results_dict, proposition_results_dict
 
     def ner(self, chunk_key: str, passage: str, temperature=0.0, fix_attempt=False) -> NerRawOutput:
         """

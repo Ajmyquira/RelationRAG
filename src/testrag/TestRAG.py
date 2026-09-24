@@ -165,23 +165,20 @@ class TestRAG:
         # Extract named entities and propositions
         if len(chunk_keys_to_process) > 0:
             logger.info("Running EnhancedOpenIE in index")
-            new_ner_results_dict, _, new_proposition_results_dict_props = self.openie.batch_openie(new_openie_rows)
+            new_ner_results_dict, new_proposition_results_dict = self.openie.batch_openie(new_openie_rows)
 
             self.merge_openie_results(
                 all_openie_info,
                 new_openie_rows,
                 new_ner_results_dict,
-                None,
-                new_proposition_results_dict_props
+                new_proposition_results_dict
             )
         
         if self.global_config.save_openie:
             self.save_openie_results(all_openie_info)
 
         # Sanity check
-        ner_results_dict, proposition_results_dict_reformatted = reformat_openie_results(all_openie_info)
-        print(len(chunks), len(ner_results_dict), len(proposition_results_dict_reformatted), len(all_openie_info))
-        assert len(chunks) == len(ner_results_dict) == len(proposition_results_dict_reformatted)
+        assert len(chunks) == len(all_openie_info), f"{len(chunks)} chunks but {len(all_openie_info)} OpenIE results"
 
         # Encoding entities and propositions
         chunk_ids = list(chunks.keys())
@@ -308,17 +305,15 @@ class TestRAG:
         all_openie_info: list[dict],
         chunks_to_save: Dict[str, dict],
         ner_results_dict: Dict[str, NerRawOutput],
-        proposition_results_dict_triples: Dict[str, PropositionRawOutput],
-        proposition_results_dict_props: Dict[str, PropositionRawOutput] = None,
+        proposition_results_dict: Dict[str, PropositionRawOutput],
     ):
         """
         Merges OpenIE extraction results with corresponding passage and metadata.
 
-        This function integrates the OpenIE extraction results, including propositions (if available),
-        named-entity recognition (NER) entities, and (legacy) propositions/triples, with their respective text passages
-        using the provided chunk keys. The resulting merged data is appended to
-        the `all_openie_info` list containing dictionaries with combined and organized
-        data for further processing or storage.
+        This function integrates the named-entity recognition (NER) entities, propositions and
+        proposition-proposition relations with their respective text passages using the provided
+        chunk keys. The resulting merged data is appended to the `all_openie_info` list containing
+        dictionaries with combined and organized data for further processing or storage.
 
         Parameters:
             all_openie_info (list[dict]): A list to hold dictionaries of merged OpenIE
@@ -327,10 +322,8 @@ class TestRAG:
                 and merge OpenIE results to dictionaries with `hash_id` and `content` keys.
             ner_results_dict (Dict[str, NerRawOutput]): A dictionary mapping chunk keys
                 to their corresponding NER extraction results.
-            proposition_results_dict_triples (Dict[str, PropositionRawOutput]): A dictionary mapping chunk
-                keys to their corresponding OpenIE (legacy) proposition/triple extraction results.
-            proposition_results_dict_props (Dict[str, PropositionRawOutput], optional): A dictionary 
-                mapping chunk keys to their corresponding main proposition extraction results.
+            proposition_results_dict (Dict[str, PropositionRawOutput]): A dictionary mapping chunk
+                keys to their corresponding proposition extraction results.
 
         Returns:
             list[dict]: The `all_openie_info` list containing dictionaries with merged
@@ -344,16 +337,10 @@ class TestRAG:
                 'idx': chunk_key,
                 'passage': passage,
                 'doc_id': self.chunk_to_doc_id[chunk_key],
-                'extracted_entities': ner_results_dict[chunk_key].unique_entities
+                'extracted_entities': ner_results_dict[chunk_key].unique_entities,
+                'propositions': proposition_results_dict[chunk_key].propositions,
+                'relations': proposition_results_dict[chunk_key].relations,
             }
-
-            if proposition_results_dict_triples is not None and chunk_key in proposition_results_dict_triples:
-                chunk_openie_info['extracted_triples'] = proposition_results_dict_triples[chunk_key].propositions
-            else:
-                chunk_openie_info['extracted_triples'] = []
-
-            chunk_openie_info['propositions'] = proposition_results_dict_props[chunk_key].propositions
-            chunk_openie_info['relations'] = proposition_results_dict_props[chunk_key].relations
 
             all_openie_info.append(chunk_openie_info)
 
