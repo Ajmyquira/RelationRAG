@@ -1,6 +1,7 @@
 import logging
 import numpy as np
 
+from hashlib import md5
 from argparse import ArgumentTypeError
 from dataclasses import dataclass, field
 from typing import Dict, Any
@@ -33,8 +34,7 @@ def compute_mdhash_id(content: str, prefix: str = "") -> str:
     Returns:
         str: A string consisting of the prefix followed by the hexadecimal representation of the MD5 hash.
     """
-    # return prefix + md5(content.encode()).hexdigest()
-    return prefix + content
+    return prefix + md5(content.encode()).hexdigest()
 
 
 def string_to_bool(v):

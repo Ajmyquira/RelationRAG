@@ -12,7 +12,13 @@ import igraph as ig
 from .llm import _get_llm_class, BaseLLM
 from .embedding_model import _get_embedding_model_class, BaseEmbeddingModel
 from .embedding_store import EmbeddingStore
-from .utils.misc_utils import *
+from .utils.misc_utils import (
+    NerRawOutput,
+    PropositionRawOutput,
+    compute_mdhash_id,
+    extract_proposition_entities,
+    flatten_propositions,
+)
 from .utils.config_utils import BaseConfig
 from .utils.entity_synonymy import find_synonym_pairs
 from .utils.relation_utils import sanitize_proposition_relations
@@ -361,42 +367,23 @@ class TestRAG:
         for chunk in all_openie_info:
             for i, e in enumerate(chunk['extracted_entities']):
                 if not isinstance(e, str):
-                    print(chunk)
-                    print(e)
+                    logger.warning(f"Non-string entity {e!r} in chunk {chunk['idx']}, casting to str")
                 chunk['extracted_entities'][i] = str(e)
-        sum_phrase_chars = sum([len(e) for chunk in all_openie_info for e in chunk['extracted_entities']])
-        sum_phrase_words = sum([len(e.split()) for chunk in all_openie_info for e in chunk['extracted_entities']])
-        num_phrases = sum([len(chunk['extracted_entities']) for chunk in all_openie_info])
+        sum_phrase_chars = sum(len(e) for chunk in all_openie_info for e in chunk['extracted_entities'])
+        sum_phrase_words = sum(len(e.split()) for chunk in all_openie_info for e in chunk['extracted_entities'])
+        num_phrases = sum(len(chunk['extracted_entities']) for chunk in all_openie_info)
 
-        if len(all_openie_info) > 0 and num_phrases > 0:
-            openie_dict = {
-                'docs': all_openie_info,
-                'avg_ent_chars': round(sum_phrase_chars / num_phrases, 4),
-                'avg_ent_words': round(sum_phrase_words / num_phrases, 4)
-            }
-            with open(self.openie_results_path, 'w') as f:
-                json.dump(openie_dict, f)
-            logger.info(f"OpenIE results saved to {self.openie_results_path}")
-        elif len(all_openie_info) > 0:
-            logger.warning(f"No phrases extracted, cannot compute average for OpenIE results")
-            openie_dict = {
-                'docs': all_openie_info,
-                'avg_ent_chars': 0,
-                'avg_ent_words': 0
-            }
-            with open(self.openie_results_path, 'w') as f:
-                json.dump(openie_dict, f)
-            logger.info(f"OpenIE results saved to {self.openie_results_path}")
-        else:
-            logger.warning(f"No OpenIE results to save")
-            openie_dict = {
-                'docs': [],
-                'avg_ent_chars': 0,
-                'avg_ent_words': 0
-            }
-            with open(self.openie_results_path, 'w') as f:
-                json.dump(openie_dict, f)
-            logger.info(f"OpenIE results (without averages) saved to {self.openie_results_path}")
+        if num_phrases == 0:
+            logger.warning("No entities extracted, OpenIE averages set to 0")
+
+        openie_dict = {
+            'docs': all_openie_info,
+            'avg_ent_chars': round(sum_phrase_chars / num_phrases, 4) if num_phrases else 0,
+            'avg_ent_words': round(sum_phrase_words / num_phrases, 4) if num_phrases else 0,
+        }
+        with open(self.openie_results_path, 'w') as f:
+            json.dump(openie_dict, f)
+        logger.info(f"OpenIE results saved to {self.openie_results_path}")
 
 
     def record_edge(self, source_id: str, target_id: str, rel_type: str, symmetric: bool = False):
