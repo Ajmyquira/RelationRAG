@@ -46,11 +46,11 @@ class PromptTemplateManager:
 
                 try:
                     try:
-                        module_name = f"src.testrag.prompts.templates.{script_name}"
+                        module_name = f"src.relationrag.prompts.templates.{script_name}"
                         module = importlib.import_module(module_name)
                     except ModuleNotFoundError:
-                        module_name = f".testrag.prompts.templates.{script_name}"
-                        module = importlib.import_module(module_name, "testrag")
+                        module_name = f".relationrag.prompts.templates.{script_name}"
+                        module = importlib.import_module(module_name, "relationrag")
 
                     if not hasattr(module, "prompt_template"):
                         raise AttributeError(f"Module '{module_name}' does not define a 'prompt_template'.")

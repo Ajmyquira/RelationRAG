@@ -1,15 +1,15 @@
 import json
 import argparse
 
-from src.testrag import TestRAG
-from src.testrag.utils.config_utils import BaseConfig
-from src.testrag.utils.misc_utils import string_to_bool
+from src.relationrag import RelationRAG
+from src.relationrag.utils.config_utils import BaseConfig
+from src.relationrag.utils.misc_utils import string_to_bool
 
 import logging
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
 def main():
-    parser = argparse.ArgumentParser(description="Test RAG")
+    parser = argparse.ArgumentParser(description="Relation RAG")
     parser.add_argument("--dataset", type=str, default="2wikimultihopqa", help="Dataset name")
     parser.add_argument("--llm_name", type=str, default="gpt-4o-mini", help="LLM name")
     parser.add_argument("--llm_base_url", type=str, default="https://api.openai.com/v1", help='LLM base URL')
@@ -41,8 +41,8 @@ def main():
 
     logging.basicConfig(level=logging.INFO)
 
-    testrag = TestRAG(global_config=config)
-    testrag.index(docs)
+    relationrag = RelationRAG(global_config=config)
+    relationrag.index(docs)
 
 if __name__ == "__main__":
     main()

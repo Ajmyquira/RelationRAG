@@ -27,7 +27,7 @@ from .information_extraction.enhanced_openie import EnhancedOpenIE
 
 logger = logging.getLogger(__name__)
 
-class TestRAG:
+class RelationRAG:
     def __init__(self, global_config=None, save_dir=None, llm_model_name=None, embedding_model_name=None, llm_base_url=None):
         """
         Initializes an instance of the class and its related components.
@@ -70,7 +70,7 @@ class TestRAG:
             self.global_config.llm_base_url = llm_base_url
 
         _print_config = ",\n ".join([f"{k} = {v}" for k, v in asdict(self.global_config).items()])
-        logger.debug(f"TestRAG init with config:\n {_print_config}\n")
+        logger.debug(f"RelationRAG init with config:\n {_print_config}\n")
 
         llm_label = self.global_config.llm_name.replace("/", "_")
         embedding_label = self.global_config.embedding_model_name.replace("/", "_")
