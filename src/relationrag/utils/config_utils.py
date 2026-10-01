@@ -82,7 +82,9 @@ class BaseConfig:
             if self.dataset is None: self.save_dir = "outputs" # Running freely
             else: self.save_dir = os.path.join('outputs', self.dataset) # Customize your dataset's output dir here
 
-        with open('openrouter_api_key.txt', 'r') as f:
-            self.api_key = f.read().strip()
+        self.api_key = os.getenv("OPENAI_API_KEY")
+        if self.api_key is None:
+            logger.error("OPENAI_API_KEY is not set")
+            raise ValueError("OPENAI_API_KEY is not set")
 
         logger.debug(f"Initializing the highest level of save_dir to be {self.save_dir}")

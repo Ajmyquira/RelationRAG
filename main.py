@@ -1,6 +1,9 @@
 import json
 import argparse
 
+from dotenv import load_dotenv
+load_dotenv()
+
 from src.relationrag import RelationRAG
 from src.relationrag.utils.config_utils import BaseConfig
 from src.relationrag.utils.misc_utils import string_to_bool
