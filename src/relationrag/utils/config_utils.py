@@ -64,6 +64,16 @@ class BaseConfig:
         metadata={"help": "Whether the graph is directed or not."}
     )
 
+    # Seed proposition retrieval
+    seed_k: int = field(
+        default=20,
+        metadata={"help": "Number of seed propositions to keep after nearest-neighbor search."}
+    )
+    lambda_mmr: float = field(
+        default=1.0,
+        metadata={"help": "MMR trade-off. 1.0 keeps the k most similar hits (no diversity); < 1 fetches 3k then MMR-selects k."}
+    )
+
     # Save dir (highest level directory)
     save_dir: str = field(
         default=None,

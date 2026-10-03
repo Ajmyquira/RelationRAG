@@ -3,7 +3,7 @@ import json
 import logging
 
 from dataclasses import asdict
-from typing import Dict, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 from collections import defaultdict
 from tqdm import tqdm
 
@@ -609,6 +609,153 @@ class RelationRAG:
         query_embeddings = self.embedding_model.batch_encode([question])
         return query_embeddings[0]
 
+    def search_proposition_neighbors(
+        self,
+        query_embedding: np.ndarray,
+        n: Optional[int] = None,
+    ) -> List[dict]:
+        """
+        Nearest-neighbor search over the proposition store by cosine similarity.
+
+        Only proposition vectors are searched; passage and entity stores are ignored.
+        Hits are ranked by cosine similarity to the query (`cosine = 1 − distance`).
+
+        Parameters:
+            query_embedding : np.ndarray
+                Query vector from `encode_query`, shape `(embedding_dim,)`.
+            n : int, optional
+                Maximum number of neighbors to return. If None, return every
+                proposition ranked by descending cosine similarity.
+
+        Returns:
+            list[dict]
+                Hits sorted by descending cosine similarity. Each hit has `id`,
+                `text`, `embedding`, and `score` (cosine similarity).
+        """
+
+        store = self.proposition_embedding_store
+        hash_ids = store.get_all_ids()
+        if not hash_ids:
+            return []
+
+        proposition_embeddings = np.asarray(store.get_embeddings(hash_ids), dtype=np.float32)
+        if proposition_embeddings.ndim != 2 or proposition_embeddings.shape[0] == 0:
+            return []
+
+        query = np.asarray(query_embedding, dtype=np.float32).reshape(-1)
+        if query.shape[0] != proposition_embeddings.shape[1]:
+            raise ValueError(
+                f"Query embedding dim {query.shape[0]} does not match "
+                f"proposition embedding dim {proposition_embeddings.shape[1]}"
+            )
+
+        query_norm = np.linalg.norm(query)
+        store_norms = np.linalg.norm(proposition_embeddings, axis=1)
+        dots = proposition_embeddings @ query
+        cosine_distance = np.ones(proposition_embeddings.shape[0], dtype=np.float32)
+        valid = (query_norm > 0) & (store_norms > 0)
+        cosine_distance[valid] = 1.0 - (dots[valid] / (store_norms[valid] * query_norm))
+        cosine = 1.0 - cosine_distance
+
+        order = np.argsort(-cosine, kind="stable")
+        if n is not None:
+            order = order[: max(0, min(int(n), len(order)))]
+
+        id_to_row = store.get_text_for_all_rows()
+        hits = []
+        for idx in order:
+            prop_id = hash_ids[idx]
+            hits.append({
+                "id": prop_id,
+                "text": id_to_row[prop_id]["content"],
+                "embedding": proposition_embeddings[idx],
+                "score": float(cosine[idx]),
+            })
+        return hits
+
+    def select_topk_propositions(
+        self,
+        query_embedding: np.ndarray,
+        k: Optional[int] = None,
+        lambda_mmr: Optional[float] = None,
+    ) -> List[dict]:
+        """
+        Keep the top-k proposition neighbors, optionally reranked with MMR.
+
+        Default `k = 20` and `lambda_mmr = 1` keep the k most similar hits
+        (MMR is a no-op). If `lambda_mmr < 1`, fetch a larger pool (`3 × k`)
+        and MMR-select k items for diversity.
+
+        Parameters:
+            query_embedding : np.ndarray
+                Query vector from `encode_query`, shape `(embedding_dim,)`.
+            k : int, optional
+                Number of hits to return. Defaults to `seed_k` (20).
+            lambda_mmr : float, optional
+                MMR relevance–diversity trade-off in `[0, 1]`. Defaults to
+                `lambda_mmr` in config (1.0). Values below 1 enable MMR.
+
+        Returns:
+            list[dict]
+                Up to k hits with `id`, `text`, `embedding`, and `score`
+                (cosine similarity to the query).
+        """
+
+        if k is None:
+            k = self.global_config.seed_k
+        if lambda_mmr is None:
+            lambda_mmr = self.global_config.lambda_mmr
+
+        k = max(0, int(k))
+        if k == 0:
+            return []
+
+        pool_size = 3 * k if lambda_mmr < 1 else k
+        hits = self.search_proposition_neighbors(query_embedding, n=pool_size)
+        if lambda_mmr < 1:
+            return self._mmr_select(hits, k=k, lambda_mmr=lambda_mmr)
+        return hits[:k]
+
+    @staticmethod
+    def _mmr_select(hits: List[dict], k: int, lambda_mmr: float) -> List[dict]:
+        """
+        Greedy Maximal Marginal Relevance: pick k items from `hits`.
+
+        MMR = λ · sim(q, d) − (1 − λ) · max_{d' selected} sim(d, d'),
+        with cosine similarity for both terms. `score` on each hit is
+        sim(q, d); pairwise cosine uses the hit embeddings.
+        """
+
+        if not hits or k <= 0:
+            return []
+
+        k = min(k, len(hits))
+        embeddings = np.asarray([hit["embedding"] for hit in hits], dtype=np.float32)
+        scores = np.asarray([hit["score"] for hit in hits], dtype=np.float32)
+
+        norms = np.linalg.norm(embeddings, axis=1)
+        normalized = np.zeros_like(embeddings)
+        nonzero = norms > 0
+        normalized[nonzero] = embeddings[nonzero] / norms[nonzero, None]
+        pairwise_cosine = normalized @ normalized.T
+
+        selected: List[int] = []
+        remaining = list(range(len(hits)))
+
+        first = int(np.argmax(scores))
+        selected.append(first)
+        remaining.remove(first)
+
+        while len(selected) < k and remaining:
+            rem = np.asarray(remaining)
+            max_sim_to_selected = pairwise_cosine[np.ix_(rem, np.asarray(selected))].max(axis=1)
+            mmr_scores = lambda_mmr * scores[rem] - (1.0 - lambda_mmr) * max_sim_to_selected
+            pick = remaining[int(np.argmax(mmr_scores))]
+            remaining.remove(pick)
+            selected.append(pick)
+
+        return [hits[idx] for idx in selected]
+
     def answer(self, question: str) -> str:
         """
         Answer a question from the indexed graph.
@@ -628,15 +775,26 @@ class RelationRAG:
         context = self.retrieve(question)
         return self.generate(question, context)
 
-    def retrieve(self, question: str):
+    def retrieve(self, question: str) -> List[dict]:
         """
         Retrieve context for a question.
 
-        Seed proposition search and graph walk are added in later steps.
+        Encodes the question with the index-time embedding model, searches
+        the proposition store by cosine similarity, and keeps the top-k hits
+        (optional MMR).
+        Parameters:
+            question : str
+                Natural-language question.
+
+        Returns:
+            list[dict]
+                Seed hits with `id`, `text`, `embedding`, and `score`.
         """
 
-        print(f"[retrieve] {question}")
-        return question
+        query_embedding = self.encode_query(question)
+        seeds = self.select_topk_propositions(query_embedding)
+        logger.info(f"Retrieved {len(seeds)} seed propositions for the question")
+        return seeds
 
     def generate(self, question: str, context) -> str:
         """
