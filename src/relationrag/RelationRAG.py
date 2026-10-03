@@ -8,6 +8,7 @@ from collections import defaultdict
 from tqdm import tqdm
 
 import igraph as ig
+import numpy as np
 
 from .llm import _get_llm_class, BaseLLM
 from .embedding_model import _get_embedding_model_class, BaseEmbeddingModel
@@ -247,7 +248,6 @@ class RelationRAG:
         self.add_synonymy_edges() # Add bidirectional 'sinonimo' edges between entity aliases
         self.augment_graph() # Add new nodes and edges to the graph
         self.save_igraph() # Save the graph to a GraphML file
-
 
     def _normalize_docs(self, docs: list[dict]) -> Tuple[list[str], list[str]]:
         """
@@ -587,3 +587,63 @@ class RelationRAG:
         logger.info(f"Writting graph with {len(self.graph.vs())} nodes, {len(self.graph.es())} edges")
         self.graph.write_graphml(self._graphml_xml_file)
         logger.info(f"Saving graph completed!")
+
+    def encode_query(self, question: str) -> np.ndarray:
+        """
+        Encode a question with the same embedding model used to index propositions.
+
+        Indexing stores proposition vectors via `self.embedding_model.batch_encode`.
+        Query-time encoding must reuse that model (and its normalization settings)
+        so cosine search is in the same space. Returns one query vector.
+
+        Parameters:
+            question : str
+                Natural-language question to encode.
+
+        Returns:
+            np.ndarray
+                Query embedding of shape `(embedding_dim,)`. L2-normalized when
+                `embedding_return_as_normalized` is True, matching index-time vectors.
+        """
+
+        query_embeddings = self.embedding_model.batch_encode([question])
+        return query_embeddings[0]
+
+    def answer(self, question: str) -> str:
+        """
+        Answer a question from the indexed graph.
+
+        Retrieves context for the question, then generates an answer from that
+        context. Does not index documents.
+
+        Parameters:
+            question : str
+                Natural-language question.
+
+        Returns:
+            str
+                Generated answer.
+        """
+
+        context = self.retrieve(question)
+        return self.generate(question, context)
+
+    def retrieve(self, question: str):
+        """
+        Retrieve context for a question.
+
+        Seed proposition search and graph walk are added in later steps.
+        """
+
+        print(f"[retrieve] {question}")
+        return question
+
+    def generate(self, question: str, context) -> str:
+        """
+        Generate an answer from a question and retrieved context.
+
+        Answer prompting is added in a later step.
+        """
+
+        print(f"[generate] {context}")
+        return context
