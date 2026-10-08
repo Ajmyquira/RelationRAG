@@ -241,11 +241,11 @@ class RelationRAG:
         self.typed_edges = set()
 
         logger.info(f"Using entity-proposition-passage graph construction")
-        self.add_proposition_entity_edges() # Add edges between propositions and entities ('menciona')
-        self.add_passage_proposition_edges(chunk_ids, chunk_propositions_list) # Add edges between passage and proposition ('contiene')
+        self.add_proposition_entity_edges() # Add edges between propositions and entities ('mentions')
+        self.add_passage_proposition_edges(chunk_ids, chunk_propositions_list) # Add edges between passage and proposition ('contains')
         self.add_proposition_proposition_edges(chunk_ids, chunk_propositions_list, chunk_relations_list) # Add directed edges between propositions within each chunk
 
-        self.add_synonymy_edges() # Add bidirectional 'sinonimo' edges between entity aliases
+        self.add_synonymy_edges() # Add bidirectional 'synonym' edges between entity aliases
         self.augment_graph() # Add new nodes and edges to the graph
         self.save_igraph() # Save the graph to a GraphML file
 
@@ -397,7 +397,7 @@ class RelationRAG:
 
     def add_proposition_entity_edges(self):
         """
-        Connect each proposition to the entity nodes it mentions (`menciona`).
+        Connect each proposition to the entity nodes it mentions (`mentions`).
 
         Note: This method only collects relationships in typed_edges.
         Actual vertices and edges are added later by augment_graph().
@@ -414,13 +414,13 @@ class RelationRAG:
             if prop_key not in current_graph_nodes:
                 for entity_text in entities:
                     entity_key = compute_mdhash_id(entity_text, prefix="entity-")
-                    self.record_edge(prop_key, entity_key, "menciona")
+                    self.record_edge(prop_key, entity_key, "mentions")
 
         logger.info("Finished adding proposition-entity edges")
 
     def add_passage_proposition_edges(self, chunk_ids: list[str], chunk_propositions_list: list[list[Dict]]):
         """
-        Connect each new passage (chunk) node to the proposition nodes extracted from it (`contiene`).
+        Connect each new passage (chunk) node to the proposition nodes extracted from it (`contains`).
 
         Parameters:
             chunk_ids : list[str]
@@ -443,7 +443,7 @@ class RelationRAG:
             if chunk_key not in current_graph_nodes:
                 for prop in chunk_propositions_list[idx]:
                     prop_key = compute_mdhash_id(prop["text"], prefix="proposition-")
-                    self.record_edge(chunk_key, prop_key, "contiene")
+                    self.record_edge(chunk_key, prop_key, "contains")
 
         logger.info("Finished adding passage-proposition edges")
 
@@ -477,7 +477,7 @@ class RelationRAG:
         logger.info(f"Finished adding {added} proposition-proposition relations")
 
     def add_synonymy_edges(self):
-        """Add bidirectional `sinonimo` edges between entity aliases using string identity."""
+        """Add bidirectional `synonym` edges between entity aliases using string identity."""
 
         logger.info("Expanding graph with entity synonymy edges")
 
@@ -496,7 +496,7 @@ class RelationRAG:
             right_key = compute_mdhash_id(right, prefix="entity-")
             if left_key in current_graph_nodes and right_key in current_graph_nodes:
                 continue
-            self.record_edge(left_key, right_key, "sinonimo", symmetric=True)
+            self.record_edge(left_key, right_key, "synonym", symmetric=True)
             added += 1
 
         logger.info(f"Finished adding {added} entity synonym pairs")
@@ -835,8 +835,8 @@ class RelationRAG:
 
         Every edge incident to the seed (outgoing and incoming) becomes a
         `(src_id, edge_type, dst_id)` triplet, keeping the direction stored in
-        the graph: `menciona` (out), `contiene` (in) and typed proposition-
-        proposition relations (either direction). `sinonimo` edges are skipped.
+        the graph: `mentions` (out), `contains` (in) and typed proposition-
+        proposition relations (either direction). `synonym` edges are skipped.
         """
 
         index = self._node_index()
@@ -851,7 +851,7 @@ class RelationRAG:
         for mode in ("out", "in"):
             for eid in self.graph.incident(seed_idx, mode=mode):
                 rel_type = types[eid]
-                if rel_type == "sinonimo":
+                if rel_type == "synonym":
                     continue
                 edge = self.graph.es[eid]
                 triplets.add((names[edge.source], rel_type, names[edge.target]))
