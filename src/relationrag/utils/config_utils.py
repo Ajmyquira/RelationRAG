@@ -74,6 +74,12 @@ class BaseConfig:
         metadata={"help": "MMR trade-off. 1.0 keeps the k most similar hits (no diversity); < 1 fetches 3k then MMR-selects k."}
     )
 
+    # Graph traversal
+    max_propositions: int = field(
+        default=30,
+        metadata={"help": "Maximum number of propositions kept in the retrieved subgraph after expansion."}
+    )
+
     # Save dir (highest level directory)
     save_dir: str = field(
         default=None,

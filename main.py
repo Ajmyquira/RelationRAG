@@ -39,6 +39,7 @@ def main():
     parser.add_argument("--embedding_name", type=str, default="facebook/contriever", help="Embedding model name")
     parser.add_argument("--force_index_from_scratch", type=str, default="false", help="If set to True, will ignore all existing storage files and graph data and will rebuild from scrath.")
     parser.add_argument("--force_openie_from_scratch", type=str, default="false", help="If set to False, will try to first reuse openie result for the corpus if they exist.")
+    parser.add_argument("--max_propositions", type=int, default=30, help="Maximum number of propositions kept in the retrieved subgraph.")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO)
@@ -50,6 +51,7 @@ def main():
         force_index_from_scratch=string_to_bool(args.force_index_from_scratch),
         force_openie_from_scratch=string_to_bool(args.force_openie_from_scratch),
         llm_base_url=args.llm_base_url,
+        max_propositions=args.max_propositions,
     )
 
     if args.mode == "index":

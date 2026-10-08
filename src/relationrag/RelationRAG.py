@@ -609,6 +609,18 @@ class RelationRAG:
         query_embeddings = self.embedding_model.batch_encode([question])
         return query_embeddings[0]
 
+    @staticmethod
+    def _cosine_scores(query: np.ndarray, matrix: np.ndarray) -> np.ndarray:
+        """Cosine similarity between `query` (dim,) and each row of `matrix` (n, dim); 0 for zero vectors."""
+
+        query_norm = np.linalg.norm(query)
+        row_norms = np.linalg.norm(matrix, axis=1)
+        dots = matrix @ query
+        cosine_distance = np.ones(matrix.shape[0], dtype=np.float32)
+        valid = (query_norm > 0) & (row_norms > 0)
+        cosine_distance[valid] = 1.0 - (dots[valid] / (row_norms[valid] * query_norm))
+        return 1.0 - cosine_distance
+
     def search_proposition_neighbors(
         self,
         query_embedding: np.ndarray,
@@ -649,13 +661,7 @@ class RelationRAG:
                 f"proposition embedding dim {proposition_embeddings.shape[1]}"
             )
 
-        query_norm = np.linalg.norm(query)
-        store_norms = np.linalg.norm(proposition_embeddings, axis=1)
-        dots = proposition_embeddings @ query
-        cosine_distance = np.ones(proposition_embeddings.shape[0], dtype=np.float32)
-        valid = (query_norm > 0) & (store_norms > 0)
-        cosine_distance[valid] = 1.0 - (dots[valid] / (store_norms[valid] * query_norm))
-        cosine = 1.0 - cosine_distance
+        cosine = self._cosine_scores(query, proposition_embeddings)
 
         order = np.argsort(-cosine, kind="stable")
         if n is not None:
@@ -775,26 +781,147 @@ class RelationRAG:
         context = self.retrieve(question)
         return self.generate(question, context)
 
-    def retrieve(self, question: str) -> List[dict]:
+    def retrieve(self, question: str) -> dict:
         """
-        Retrieve context for a question.
+        Retrieve a subgraph of context for a question.
 
-        Encodes the question with the index-time embedding model, searches
-        the proposition store by cosine similarity, and keeps the top-k hits
-        (optional MMR).
+        Encodes the question, picks seed propositions (top-k, optional MMR),
+        expands each seed one hop in the graph, merges the triplets and
+        filters down to `max_propositions` propositions.
+
         Parameters:
             question : str
                 Natural-language question.
 
         Returns:
-            list[dict]
-                Seed hits with `id`, `text`, `embedding`, and `score`.
+            dict
+                `{"nodes": [...], "triplets": [...]}` as in `filter_subgraph`.
         """
+
+        if self.graph.vcount() == 0:
+            raise RuntimeError("The graph is empty. Index the corpus first (and avoid --force_index_from_scratch in query mode).")
 
         query_embedding = self.encode_query(question)
         seeds = self.select_topk_propositions(query_embedding)
         logger.info(f"Retrieved {len(seeds)} seed propositions for the question")
-        return seeds
+
+        triplets = self.expand_seeds(seeds)
+        subgraph = self.filter_subgraph(query_embedding, seeds, triplets)
+        logger.info(
+            f"Subgraph: {len(subgraph['nodes'])} nodes, {len(subgraph['triplets'])} triplets "
+            f"(from {len(triplets)} expanded triplets)"
+        )
+        return subgraph
+
+    def _node_index(self) -> Dict[str, int]:
+        """
+        Map node `name` (hash id) to its igraph vertex index.
+
+        igraph edges are expressed with integer indices, so every hash id must
+        be translated first. The dict is built once (and rebuilt if the graph
+        size changes) instead of calling `vs.find` per lookup, which scans all nodes.
+        """
+
+        cached = getattr(self, "_node_index_cache", None)
+        if cached is None or cached[0] != self.graph.vcount():
+            names = self.graph.vs["name"] if self.graph.vcount() > 0 else []
+            cached = (self.graph.vcount(), {name: idx for idx, name in enumerate(names)})
+            self._node_index_cache = cached
+        return cached[1]
+
+    def expand_seed(self, seed_id: str) -> Set[Tuple[str, str, str]]:
+        """
+        One-hop expansion of a seed proposition.
+
+        Every edge incident to the seed (outgoing and incoming) becomes a
+        `(src_id, edge_type, dst_id)` triplet, keeping the direction stored in
+        the graph: `menciona` (out), `contiene` (in) and typed proposition-
+        proposition relations (either direction). `sinonimo` edges are skipped.
+        """
+
+        index = self._node_index()
+        if seed_id not in index:
+            logger.warning(f"Seed {seed_id} is not in the graph, skipping expansion")
+            return set()
+
+        names = self.graph.vs["name"]
+        types = self.graph.es["type"] if self.graph.ecount() > 0 else []
+        seed_idx = index[seed_id]
+        triplets = set()
+        for mode in ("out", "in"):
+            for eid in self.graph.incident(seed_idx, mode=mode):
+                rel_type = types[eid]
+                if rel_type == "sinonimo":
+                    continue
+                edge = self.graph.es[eid]
+                triplets.add((names[edge.source], rel_type, names[edge.target]))
+        return triplets
+
+    def expand_seeds(self, seeds: List[dict]) -> Set[Tuple[str, str, str]]:
+        """Union of the one-hop triplets of all seeds; duplicates collapse in the set."""
+
+        triplets = set()
+        for seed in seeds:
+            triplets |= self.expand_seed(seed["id"])
+        return triplets
+
+    def filter_subgraph(
+        self,
+        query_embedding: np.ndarray,
+        seeds: List[dict],
+        triplets: Set[Tuple[str, str, str]],
+        max_propositions: Optional[int] = None,
+    ) -> dict:
+        """
+        Limit the subgraph to the `max_propositions` propositions most similar to the query.
+
+        Only propositions are scored against the question (seeds reuse their
+        score, neighbor propositions are embedded from the proposition store).
+        Entities and passages survive only if some triplet links them to a
+        surviving proposition; triplets with a dropped endpoint are removed.
+
+        Returns:
+            dict
+                `{"nodes": [{id, type, text, score?}], "triplets": [(src, rel, dst)]}`.
+        """
+
+        if max_propositions is None:
+            max_propositions = self.global_config.max_propositions
+
+        index = self._node_index()
+        node_ids = {seed["id"] for seed in seeds if seed["id"] in index}
+        for src, _, dst in triplets:
+            node_ids.update((src, dst))
+
+        node_type = {nid: self.graph.vs[index[nid]]["node_type"] for nid in node_ids}
+        prop_ids = [nid for nid in node_ids if node_type[nid] == "proposition"]
+
+        scores = {seed["id"]: seed["score"] for seed in seeds}
+        to_score = [pid for pid in prop_ids if pid not in scores]
+        if to_score:
+            embeddings = np.asarray(self.proposition_embedding_store.get_embeddings(to_score), dtype=np.float32)
+            query = np.asarray(query_embedding, dtype=np.float32).reshape(-1)
+            for pid, score in zip(to_score, self._cosine_scores(query, embeddings)):
+                scores[pid] = float(score)
+
+        kept_props = set(sorted(prop_ids, key=lambda pid: -scores[pid])[: max(0, int(max_propositions))])
+
+        kept_nodes = set(kept_props)
+        for src, _, dst in triplets:
+            if src in kept_props and node_type[dst] != "proposition":
+                kept_nodes.add(dst)
+            if dst in kept_props and node_type[src] != "proposition":
+                kept_nodes.add(src)
+
+        final_triplets = sorted(t for t in triplets if t[0] in kept_nodes and t[2] in kept_nodes)
+        nodes = []
+        for nid in sorted(kept_nodes, key=lambda n: (node_type[n] != "proposition", -scores.get(n, 0.0), n)):
+            node = {"id": nid, "type": node_type[nid], "text": self.graph.vs[index[nid]]["content"]}
+            if nid in kept_props:
+                node["score"] = scores[nid]
+            nodes.append(node)
+
+        return {"nodes": nodes, "triplets": final_triplets}
 
     def generate(self, question: str, context) -> str:
         """
@@ -803,5 +930,9 @@ class RelationRAG:
         Answer prompting is added in a later step.
         """
 
-        print(f"[generate] {context}")
+        print(f"[generate] {len(context['nodes'])} nodes, {len(context['triplets'])} triplets")
+        for node in context["nodes"]:
+            print(f"  [{node['type']}] {node['id']}: {node['text']!r}" + (f" ({node['score']:.3f})" if "score" in node else ""))
+        for src, rel, dst in context["triplets"]:
+            print(f"  ({src}) -{rel}-> ({dst})")
         return context
